@@ -221,8 +221,6 @@ def parse_args():
     # low_rank_method
     parser.add_argument("--low_rank_method", type=str, default=None, help="low rank method for wandb sweep")
 
-    parser.add_argument("--eval_freq", type=int, default=10)
-
     args = parser.parse_args()
 
     # Sanity checks
@@ -530,45 +528,24 @@ def main():
             print('enable GaLore for weights in module: ', module_name)
             galore_params.append(module.weight)
 
-        id_galore_params = [id(p) for p in galore_params]
-        # make parameters without "rank" to another group
+        # id_galore_params = [id(p) for p in galore_params]
+        # # make parameters without "rank" to another group
         # regular_params = [p for p in model.parameters() if id(p) not in id_galore_params]
         # # then call galore_adamw
         # param_groups = [{'params': regular_params},
         #                 {'params': galore_params, 'rank': args.lora_r, 'update_proj_gap': args.update_proj_gap, 'scale': args.galore_scale, 'proj_type': args.proj_type}]
-        # id_galore_params = [id(p) for p in galore_params]
-        # # make parameters without "rank" to another group
-        #
-        # muon_params = [p for name, p in model.named_parameters() if
-        #                id(p) in id_galore_params and p.ndim == 2 and not any(
-        #                    excl in name for excl in ["embeddings", "lm_head", "output"]) and any(
-        #                    incl in name for incl in
-        #                    ["query", "key", "value", "intermediate", "attention.output", "output.dense"])]
-        # id_muon_params = [id(p) for p in muon_params]
-        # galore_params = [p for p in model.parameters() if id(p) in id_galore_params and id(p) not in id_muon_params]
-        # regular_params = [p for p in model.parameters() if
-        #                   id(p) not in id_galore_params and id(p) not in id_muon_params]
-        # then call galore_adamw
-        # param_groups = [{'group_name': 'regular_params', 'params': regular_params, 'lr': args.learning_rate},
-        #                 {'group_name': 'muon_params', 'params': muon_params, 'lr': args.learning_rate,
-        #                  'rank': args.lora_r, 'update_proj_gap': args.update_proj_gap, 'scale': args.galore_scale,
-        #                  'proj_type': args.proj_type},
-        #                 {'group_name': 'galore_params', 'params': galore_params, 'lr': args.learning_rate,
-        #                  'rank': args.lora_r, 'update_proj_gap': args.update_proj_gap, 'scale': args.galore_scale,
-        #                  'proj_type': args.proj_type}]
+        id_galore_params = [id(p) for p in galore_params]
+        # make parameters without "rank" to another group
 
         muon_params = [p for name, p in model.named_parameters() if
                        id(p) in id_galore_params and p.ndim == 2 and not any(
-                           excl in name for excl in ["embeddings", "lm_head", "output"])  # ]
-                       and any(
+                           excl in name for excl in ["embeddings", "lm_head", "output"]) and any(
                            incl in name for incl in
                            ["query", "key", "value", "intermediate", "attention.output", "output.dense"])]
         id_muon_params = [id(p) for p in muon_params]
         galore_params = [p for p in model.parameters() if id(p) in id_galore_params and id(p) not in id_muon_params]
         regular_params = [p for p in model.parameters() if
                           id(p) not in id_galore_params and id(p) not in id_muon_params]
-        regular_params += galore_params
-        galore_params = []
         # then call galore_adamw
         param_groups = [{'group_name': 'regular_params', 'params': regular_params, 'lr': args.learning_rate},
                         {'group_name': 'muon_params', 'params': muon_params, 'lr': args.learning_rate,
@@ -577,6 +554,7 @@ def main():
                         {'group_name': 'galore_params', 'params': galore_params, 'lr': args.learning_rate,
                          'rank': args.lora_r, 'update_proj_gap': args.update_proj_gap, 'scale': args.galore_scale,
                          'proj_type': args.proj_type}]
+
         optimizer = GaLoreAdamW(param_groups, lr=args.learning_rate)
 
     # Scheduler and math around the number of training steps.
@@ -617,6 +595,12 @@ def main():
         # TensorBoard cannot log Enums, need the raw value
         experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"].value
         accelerator.init_trackers("glue_no_trainer", experiment_config)
+
+    # Get the metric function
+    if args.task_name is not None:
+        metric = evaluate.load("glue", args.task_name)
+    else:
+        metric = evaluate.load("accuracy")
 
     # Train!
     total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -698,11 +682,27 @@ def main():
 
             if completed_steps >= args.max_train_steps:
                 break
-            if step % args.eval_freq == 0:
-                eval_metric = evaluate_model(accelerator, eval_dataloader, is_regression, args.task_name, model)
-                logger.info(f"epoch {epoch}, step {step}: {eval_metric}")
 
-        eval_metric = evaluate_model(accelerator, eval_dataloader, is_regression, args.task_name, model)
+        model.eval()
+        samples_seen = 0
+        for step, batch in enumerate(eval_dataloader):
+            with torch.no_grad():
+                outputs = model(**batch)
+            predictions = outputs.logits.argmax(dim=-1) if not is_regression else outputs.logits.squeeze()
+            predictions, references = accelerator.gather((predictions, batch["labels"]))
+            # If we are in a multiprocess environment, the last batch has duplicates
+            if accelerator.num_processes > 1:
+                if step == len(eval_dataloader) - 1:
+                    predictions = predictions[: len(eval_dataloader.dataset) - samples_seen]
+                    references = references[: len(eval_dataloader.dataset) - samples_seen]
+                else:
+                    samples_seen += references.shape[0]
+            metric.add_batch(
+                predictions=predictions,
+                references=references,
+            )
+
+        eval_metric = metric.compute()
         logger.info(f"epoch {epoch}: {eval_metric}")
 
         if args.with_tracking:
@@ -749,66 +749,29 @@ def main():
                 repo.push_to_hub(commit_message="End of training", auto_lfs_prune=True)
 
     if args.task_name == "mnli":
-        eval_metric = evaluate_mnli(accelerator, args.per_device_eval_batch_size, data_collator, model, processed_datasets)
+        # Final evaluation on mismatched validation set
+        eval_dataset = processed_datasets["validation_mismatched"]
+        eval_dataloader = DataLoader(
+            eval_dataset, collate_fn=data_collator, batch_size=args.per_device_eval_batch_size
+        )
+        eval_dataloader = accelerator.prepare(eval_dataloader)
+
+        model.eval()
+        for step, batch in enumerate(eval_dataloader):
+            outputs = model(**batch)
+            predictions = outputs.logits.argmax(dim=-1)
+            metric.add_batch(
+                predictions=accelerator.gather(predictions),
+                references=accelerator.gather(batch["labels"]),
+            )
+
+        eval_metric = metric.compute()
         logger.info(f"mnli-mm: {eval_metric}")
 
     if args.output_dir is not None:
         all_results = {f"eval_{k}": v for k, v in eval_metric.items()}
         with open(os.path.join(args.output_dir, "all_results.json"), "w") as f:
             json.dump(all_results, f)
-
-
-def evaluate_mnli(accelerator, per_device_eval_batch_size, data_collator, model, processed_datasets):
-    metric = get_metric("mnli")
-    # Final evaluation on mismatched validation set
-    eval_dataset = processed_datasets["validation_mismatched"]
-    eval_dataloader = DataLoader(
-        eval_dataset, collate_fn=data_collator, batch_size=per_device_eval_batch_size
-    )
-    eval_dataloader = accelerator.prepare(eval_dataloader)
-    model.eval()
-    for step, batch in enumerate(eval_dataloader):
-        outputs = model(**batch)
-        predictions = outputs.logits.argmax(dim=-1)
-        metric.add_batch(
-            predictions=accelerator.gather(predictions),
-            references=accelerator.gather(batch["labels"]),
-        )
-    eval_metric = metric.compute()
-    return eval_metric
-
-
-def evaluate_model(accelerator, eval_dataloader, is_regression, task_name, model):
-    # Get the metric function
-    metric = get_metric(task_name)
-    model.eval()
-    samples_seen = 0
-    for step, batch in enumerate(eval_dataloader):
-        with torch.no_grad():
-            outputs = model(**batch)
-        predictions = outputs.logits.argmax(dim=-1) if not is_regression else outputs.logits.squeeze()
-        predictions, references = accelerator.gather((predictions, batch["labels"]))
-        # If we are in a multiprocess environment, the last batch has duplicates
-        if accelerator.num_processes > 1:
-            if step == len(eval_dataloader) - 1:
-                predictions = predictions[: len(eval_dataloader.dataset) - samples_seen]
-                references = references[: len(eval_dataloader.dataset) - samples_seen]
-            else:
-                samples_seen += references.shape[0]
-        metric.add_batch(
-            predictions=predictions,
-            references=references,
-        )
-    eval_metric = metric.compute()
-    return eval_metric
-
-
-def get_metric(task_name):
-    if task_name is not None:
-        metric = evaluate.load("glue", task_name)
-    else:
-        metric = evaluate.load("accuracy")
-    return metric
 
 
 if __name__ == "__main__":
