@@ -14,33 +14,11 @@ from .galore_projector import GaLoreProjector
 from .galore_projector_tensor import GaLoreProjectorTensor
 
 logger = get_logger(__name__)
-
-
-@torch.compile
-def zeropower_via_newtonschulz5(G, steps):
-    assert len(G.shape) == 2
-    a, b, c = (3.4445, -4.7750, 2.0315)
-    X = G#.bfloat16()
-    if G.size(0) > G.size(1):
-        X = X.T
-    # Ensure spectral norm is at most 1
-    X = X / (X.norm() + 1e-7)
-    # Perform the NS iterations
-    for _ in range(steps):
-        A = X @ X.T
-        B = (
-            b * A + c * A @ A
-        )  # adapted from suggestion by @jxbz, @leloykun, and @YouJiacheng
-        X = a * X + B @ X
-
-    if G.size(0) > G.size(1):
-        X = X.T
-    return X
 class AdamW(torch.optim.Optimizer):
     def __init__(
             self,
             params: Iterable[nn.parameter.Parameter],
-            lr=1e-3,
+            lr=3e-5,
             wd=0.1,  # muon
             weight_decay: float = 0.0,  # galore
             # muon_params=None,
@@ -139,23 +117,23 @@ class AdamW(torch.optim.Optimizer):
                                                                        update_proj_gap=group["update_proj_gap"],
                                                                        scale=group["scale"],
                                                                        proj_type=group["proj_type"])
+                    g_ = g.clone()
                     g = state["projector"].project(g, state["step"])
 
                 if "momentum_buffer" not in state:
                     state["momentum_buffer"] = torch.zeros_like(g)
                 buf = state["momentum_buffer"]
                 buf.mul_(momentum).add_(g)
+
                 if group["nesterov"]:
                     g = g.add(buf, alpha=momentum)
                 else:
                     g = buf
                 # u = zeropower_via_newtonschulz5(g, steps=group["ns_steps"])
-                u, s, v = torch.svd(g)
-                u = torch.matmul(u, v.mT)
-                condition_number = float('inf') if s.min().item() == 0 else (s.max() / s.min()).item()
+                u, _, v = torch.linalg.svd(g, full_matrices=False)
+                # condition_number = float('inf') if s.min().item() == 0 else (s.max() / s.min()).item()
                 # logger.info(f"Condition number: {condition_number}")
-                if condition_number >= 50:
-                    logger.info(f"SVD: {s.detach().cpu().numpy()}")
+                u = u @ v  # torch.matmul(u, v.mT)
                 # if g.shape[1]>g.shape[0]:
                 #     u = chebyshev_nearest_orthogonal_projection_torch(g.mT).mT
                 # else:
@@ -165,12 +143,13 @@ class AdamW(torch.optim.Optimizer):
 
                 # apply weight decay
                 p.data.mul_(1 - lr * wd)
-                state["step"] += 1
+                g_per = g_ - state["projector"].project_back(state["projector"].project(g_, state["step"]))
                 # GaLore Projection Back
                 if "rank" in group:
                     u = state["projector"].project_back(u)
                 # apply update
-                p.data.add_(u, alpha=-adjusted_lr)
+                p.data.add_(u + g_per, alpha=-adjusted_lr)
+                state["step"] += 1
 
             ############################
             #       AdamW backup       #

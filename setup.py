@@ -11,6 +11,6 @@ setup(
     author="Jiawei Zhao",
     author_email="jiawei@caltech.edu",
     license="Apache 2.0",
-    packages=["galore_torch"],
+    packages=["optimizers_torch"],
     install_requires=required,
 )
