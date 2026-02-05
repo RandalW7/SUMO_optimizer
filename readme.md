@@ -17,12 +17,12 @@ SUMO is a next-generation optimizer that bridges the gap between memory-efficien
 
 ## 📊 Comparison with State-of-the-Art
 
-| Feature | **SUMO**        | **Adam** | **Shampoo** | **SOAP**      | **GaLore**    |
-| :--- |:----------------|:---------|:------------|:--------------|:--------------|
-| **Optim. States Memory** | nr+mr           | 2mn      | m^2+n^2     | 2mn+2m^2+2n^2 | 2nr+mr        |
-| **Subspace-Aware** | ✅               | ❌        | ❌           | ❌             | ✅             |
-| **Orthogonalization** | **Exact (SVD)** | ❌        | Approx      | Approx        | ❌             |
-| **Comput. Complexity** | O(mnr+mn^2/K)   | O(mn)    | O(m^3+n^3)  | O(m^3+n^3)    | O(mnr+mn^2/K) |
+| Feature | **SUMO**        | **Adam** | **Shampoo**  | **SOAP**        | **GaLore**      |
+| :--- |:----------------|:---------|:-------------|:----------------|:----------------|
+| **Optim. States Memory** | $nr+mr$         | $2mn$    | $m^2+n^2$    | $2mn+2m^2+2n^2$ | $2nr+mr$        |
+| **Subspace-Aware** | ✅               | ❌        | ❌            | ❌               | ✅               |
+| **Orthogonalization** | **Exact (SVD)** | ❌        | Approx       | Approx          | ❌               |
+| **Comput. Complexity** | $O(mnr+mn^2/K)$ | $O(mn)$  | $O(m^3+n^3)$ | $O(m^3+n^3)$    | $O(mnr+mn^2/K)$ |
 
 
 
@@ -60,9 +60,10 @@ SUMO (rank=8) outperforms GaLore and LoRA across multiple tasks while utilizing 
 
 ## 🖋️ Authors
 * **Yehonathan Refael** - Tel Aviv University 
-* **Guy Smorodinsky** - Ben Gurion University 
+* **Guy Smorodinsky** - Ben Gurion University
+* **Tom Tirer** - Bar-Ilan University
 * **Ofir Lindenbaum** - Bar-Ilan University 
-* **Tom Tirer** - Bar-Ilan University 
+ 
 
 ---
 
