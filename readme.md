@@ -1,6 +1,6 @@
 # SUMO: Subspace-Aware Moment-Orthogonalization
 
-Official implementation of the paper **"SUMO: Subspace-Aware Moment-Orthogonalization for Accelerating Memory-Efficient LLM Training".**
+Official implementation of the paper [**"SUMO: Subspace-Aware Moment-Orthogonalization for Accelerating Memory-Efficient LLM Training".**](https://openreview.net/forum?id=DIjRvEKOeG)
 
 SUMO is a next-generation optimizer that bridges the gap between memory-efficient low-rank training and high-performance geometric optimization. By performing **exact SVD-based orthogonalization** within a dynamically adapted low-dimensional subspace, SUMO accelerates convergence while requiring significantly less memory than previous state-of-the-art methods.
 
@@ -57,6 +57,12 @@ SUMO (rank=8) outperforms GaLore and LoRA across multiple tasks while utilizing 
 * **MRPC**: 93.7 F1 
 
 ---
+# How To Run
+In order to run SUMO (rank=8) on MRPC run the following command:
+```bash
+python run_glue.py --model_name_or_path=roberta-base --task_name=mrpc --enable_galore --lora_all_modules --max_length=512 --seed=1234 --lora_r=4 --galore_scale=1 --per_device_train_batch_size=16 --update_proj_gap=500 --learning_rate=3e-5 --num_train_epochs=30 --output_dir=results/ft/roberta_base/mrpc_rank8
+```
+---
 
 ## 🖋️ Authors
 * **Yehonathan Refael** - Tel Aviv University 
@@ -73,7 +79,7 @@ If you find SUMO helpful in your research, please cite our work:
 ```bibtex
 @article{refael2025sumo,
   title={SUMO: Subspace-Aware Moment-Orthogonalization for Accelerating Memory-Efficient LLM Training},
-  author={Refael, Yehonathan and Smorodinsky, Guy and Lindenbaum, Ofir and Tirer, Tom},
-  journal={arXiv preprint arXiv:2505.24749},
+  author={Refael, Yehonathan and Smorodinsky, Guy and Tirer, Tom and Lindenbaum, Ofir},
+  journal={Advances in Neural Information Processing Systems},
   year={2025}
 }
