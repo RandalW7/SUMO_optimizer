@@ -83,30 +83,3 @@ If you find SUMO helpful in your research, please cite our work:
   journal={Advances in Neural Information Processing Systems},
   year={2025}
 }
-```
-
----
-
-## FineWeb LLaMA-130M pretraining (4x H100)
-
-The repository now includes a dedicated pretraining script and a grid-search launcher:
-
-```bash
-# Single run on 4 GPUs (choose: adamw / sumo / muon)
-torchrun --standalone --nproc_per_node 4 peft_pretraining/train_fineweb_llama.py \
-  --model_config configs/llama_130m.json \
-  --tokenizer_name_or_path <your_llama_tokenizer> \
-  --dataset_name HuggingFaceFW/fineweb \
-  --dataset_config_name sample-10BT \
-  --optimizer sumo \
-  --output_dir outputs/fineweb_130m/sumo_trial1
-```
-
-```bash
-# Grid search (AdamW + SUMO + Muon), then rank by best eval loss
-python peft_pretraining/grid_search_fineweb.py \
-  --tokenizer_name_or_path <your_llama_tokenizer> \
-  --search_space_file configs/fineweb_130m_grid.json \
-  --nproc_per_node 4 \
-  --output_root outputs/fineweb_130m_grid
-```
